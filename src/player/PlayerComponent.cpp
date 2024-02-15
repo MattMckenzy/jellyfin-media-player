@@ -50,6 +50,7 @@ PlayerComponent::PlayerComponent(QObject* parent)
   m_window(nullptr), m_mediaFrameRate(0),
   m_restoreDisplayTimer(this), m_reloadAudioTimer(this),
   m_streamSwitchImminent(false), m_doAc3Transcoding(false),
+  m_forceAutoAudio(false), m_forceAutoSubtitle(false), 
   m_videoRectangle(-1, -1, -1, -1)
 {
   qmlRegisterType<PlayerQuickItem>("Konvergo", 1, 0, "MpvVideo"); // deprecated name
@@ -197,6 +198,8 @@ bool PlayerComponent::componentInitialize()
   mpv_observe_property(m_mpv, 0, "duration", MPV_FORMAT_DOUBLE);
   mpv_observe_property(m_mpv, 0, "audio-device-list", MPV_FORMAT_NODE);
   mpv_observe_property(m_mpv, 0, "video-dec-params", MPV_FORMAT_NODE);
+  mpv_observe_property(m_mpv, 0, "aid", MPV_FORMAT_STRING);
+  mpv_observe_property(m_mpv, 0, "sid", MPV_FORMAT_STRING);
 
   // Setup a hook with the ID 1, which is run during the file is loaded.
   // Used to delay playback start for display framerate switching.
@@ -528,6 +531,10 @@ void PlayerComponent::handleMpvEvent(mpv_event *event)
           m_playbackCanceled = true;
           break;
         }
+        case MPV_END_FILE_REASON_QUIT:
+        case MPV_END_FILE_REASON_REDIRECT:
+        case MPV_END_FILE_REASON_EOF:
+          break;
       }
 
       if (!m_streamSwitchImminent)
@@ -580,6 +587,18 @@ void PlayerComponent::handleMpvEvent(mpv_event *event)
         // Aspect might be known now (or it changed during playback), so update settings
         // dependent on the aspect ratio.
         updateVideoAspectSettings();
+      }
+      else if (strcmp(prop->name, "aid") == 0)
+      {
+        QString aid = QString(*(char **)(prop->data));
+        if (m_currentAudioStream != aid)
+          setAudioStream(aid);
+      }
+      else if (strcmp(prop->name, "sid") == 0)
+      {
+        QString sid = QString(*(char **)(prop->data));
+        if (m_currentSubtitleStream != sid)
+          setSubtitleStream(sid);
       }
       break;
     }
@@ -640,8 +659,8 @@ void PlayerComponent::handleMpvEvent(mpv_event *event)
       // Used initialize stream selections and to probe codecs.
       if (!strcmp(msg->args[1], "2"))
       {
-        reselectStream(m_currentSubtitleStream, MediaType::Subtitle);
-        reselectStream(m_currentAudioStream, MediaType::Audio);
+        reselectStream(m_currentSubtitleStream, MediaType::Subtitle, true);
+        reselectStream(m_currentAudioStream, MediaType::Audio, true);
         startCodecsLoading([=] {
           mpv::qt::command(m_mpv, QStringList() << "hook-ack" << resumeId);
         });
@@ -683,8 +702,8 @@ void PlayerComponent::handleMpvEvent(mpv_event *event)
       }
       if (!strcmp(hook->name, "on_preloaded"))
       {
-        reselectStream(m_currentSubtitleStream, MediaType::Subtitle);
-        reselectStream(m_currentAudioStream, MediaType::Audio);
+        reselectStream(m_currentSubtitleStream, MediaType::Subtitle, true);
+        reselectStream(m_currentAudioStream, MediaType::Audio, true);
         startCodecsLoading([=] {
           mpv_hook_continue(m_mpv, id);
         });
@@ -826,7 +845,7 @@ QVariantList PlayerComponent::findStreamsForURL(const QString &url)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-void PlayerComponent::reselectStream(const QString &streamSelection, MediaType target)
+void PlayerComponent::reselectStream(const QString &streamSelection, MediaType target, bool duringPreload)
 {
   QString streamIdPropertyName;
   QString streamAddCommandName;
@@ -849,7 +868,22 @@ void PlayerComponent::reselectStream(const QString &streamSelection, MediaType t
   QString streamName;
   QString streamID;
 
-  if (streamSelection.startsWith("#"))
+  if (duringPreload && 
+    ((target == MediaType::Audio && m_forceAutoAudio) ||
+    (target == MediaType::Subtitle && m_forceAutoSubtitle)))
+  {
+    qDebug() << "Forcing auto track.";
+    mpv::qt::set_property(m_mpv, streamIdPropertyName, "auto");
+    return;
+  }
+  else if (streamSelection == "auto")
+    return;
+  else if (streamSelection.isEmpty())
+  {
+    mpv::qt::set_property(m_mpv, streamIdPropertyName, "no");    
+    return;
+  } 
+  else if (streamSelection.startsWith("#"))
   {
     int splitPos = streamSelection.indexOf(",");
     if (splitPos < 0)
@@ -865,10 +899,11 @@ void PlayerComponent::reselectStream(const QString &streamSelection, MediaType t
       streamName = streamSelection.mid(splitPos + 1);
     }
   }
-  else if (streamSelection.isEmpty())
+  else 
   {
-    mpv::qt::set_property(m_mpv, streamIdPropertyName, "no");
-    return;
+      // Stream from the main file
+      streamID = streamSelection;
+      streamName = "";
   }
 
   if (!streamName.isEmpty())
@@ -1067,6 +1102,9 @@ void PlayerComponent::updateAudioConfiguration()
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 void PlayerComponent::setAudioConfiguration()
 {
+  bool forceAuto = SettingsComponent::Get().value(SETTINGS_SECTION_AUDIO, "audio.force_auto").toBool();
+  m_forceAutoAudio = forceAuto;
+
   QString deviceType = SettingsComponent::Get().value(SETTINGS_SECTION_AUDIO, "devicetype").toString();
 
   mpv::qt::set_property(m_mpv, "audio-exclusive", SettingsComponent::Get().value(SETTINGS_SECTION_AUDIO, "exclusive").toBool());
@@ -1157,6 +1195,9 @@ void PlayerComponent::updateSubtitleConfiguration()
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 void PlayerComponent::setSubtitleConfiguration()
 {
+  bool forceAuto = SettingsComponent::Get().value(SETTINGS_SECTION_SUBTITLES, "subtitle.force_auto").toBool();
+  m_forceAutoSubtitle = forceAuto;
+
   bool assScaleBorderAndShadow = SettingsComponent::Get().value(SETTINGS_SECTION_SUBTITLES, "ass_scale_border_and_shadow").toBool();
   mpv::qt::set_property(m_mpv, "sub-ass-style-overrides", assScaleBorderAndShadow ? "ScaledBorderAndShadow=yes" : "ScaledBorderAndShadow=no");
 

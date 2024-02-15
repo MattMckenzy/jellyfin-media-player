@@ -276,6 +276,12 @@
         "help": "Enables TrueHD passthrough. Requires \"HDMI\" device type. The default is disabled.",
         "default": false,
         "platforms_excluded": [ "osx", "oe_rpi" ]
+      },
+      {
+        "value": "audio.force_auto",
+        "display_name": "Force Auto Audio Track",
+        "help": "Enabling this will load media with \"--aid=auto\" instead of the audio track ID received from the Jellyfin server. Useful to prefer language selection using a language list in the custom MPV configuration.",
+        "default": false
       }
     ]
   },
@@ -603,6 +609,12 @@
           [ "cursive", "Cursive" ],
           [ "fantasy", "Fantasy" ]
         ]
+      },
+      {
+        "value": "subtitle.force_auto",
+        "display_name": "Force Auto Subtitles Track",
+        "help": "Enabling this will load media with \"--sid=auto\" instead of the subtitle ID received from the Jellyfin server. Useful to prefer language selection using a language list in the custom MPV configuration.",
+        "default": false
       }
     ]
   },
