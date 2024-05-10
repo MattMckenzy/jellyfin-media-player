@@ -148,10 +148,15 @@ public:
   };
   
 public Q_SLOTS:
-  void setAudioConfiguration();
   void updateAudioDeviceList();
-  void updateSubtitleSettings();
-  void updateVideoSettings();
+  void setAudioConfiguration();
+  void setSubtitleConfiguration();
+  void setVideoConfiguration();
+  void setOtherConfiguration();
+  void updateAudioConfiguration();
+  void updateSubtitleConfiguration();
+  void updateVideoConfiguration();
+  void updateConfiguration();
 
 private Q_SLOTS:
   void handleMpvEvents();
@@ -216,7 +221,7 @@ private:
   void startCodecsLoading(std::function<void()> resume);
   void updateVideoAspectSettings();
   QVariantList findStreamsForURL(const QString &url);
-  void reselectStream(const QString &streamSelection, MediaType target);
+  void reselectStream(const QString &streamSelection, MediaType target, bool duringPreload = false);
 
   mpv::qt::Handle m_mpv;
 
@@ -242,6 +247,8 @@ private:
   bool m_doAc3Transcoding;
   QStringList m_passthroughCodecs;
   QVariantMap m_serverMediaInfo;
+  bool m_forceAutoAudio;
+  bool m_forceAutoSubtitle;
   QString m_currentSubtitleStream;
   QString m_currentAudioStream;
   QRect m_videoRectangle;
